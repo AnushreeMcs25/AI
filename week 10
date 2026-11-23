@@ -1,0 +1,267 @@
+import math
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+
+tree = {
+    "Root": ["MIN_1", "MIN_2", "MIN_3"],
+    "MIN_1": ["MAX_1", "MAX_2"],
+    "MIN_2": ["MAX_3", "MAX_4"],
+    "MIN_3": ["MAX_5", "MAX_6"],
+    "MAX_1": ["MIN_4", "MIN_5"],
+    "MAX_2": ["MIN_6"],
+    "MAX_3": ["MIN_7", "MIN_8"],
+    "MAX_4": ["MIN_9"],
+    "MAX_5": ["MIN_10"],
+    "MAX_6": ["MIN_11", "MIN_12"],
+    "MIN_4": [("L1", 5), ("L2", 6)],
+    "MIN_5": [("L3", 7), ("L4", 4), ("L5", 5)],
+    "MIN_6": [("L6", 3)],
+    "MIN_7": [("L7", 6)],
+    "MIN_8": [("L8", 6), ("L9", 9)],
+    "MIN_9": [("L10", 7)],
+    "MIN_10": [("L11", 5)],
+    "MIN_11": [("L12", 9), ("L13", 8)],
+    "MIN_12": [("L14", 6)],
+}
+
+node_values = {}
+pruned_nodes = set()
+pruned_edges = set()
+
+
+def is_leaf(state):
+    return isinstance(state, tuple)
+
+
+def node_id(state):
+    return state[0] if is_leaf(state) else state
+
+
+def utility(state):
+    return state[1]
+
+
+def actions(state):
+    return tree[state]
+
+
+def mark_pruned(state):
+    nid = node_id(state)
+    pruned_nodes.add(nid)
+    if not is_leaf(state):
+        for child in actions(state):
+            pruned_edges.add((nid, node_id(child)))
+            mark_pruned(child)
+
+
+def alpha_beta_search(state):
+    best_score = -math.inf
+    beta = math.inf
+    best_path = []
+
+    for action in actions(state):
+        v, path = min_value(action, best_score, beta)
+        if v > best_score:
+            best_score = v
+            best_path = [node_id(state)] + path
+
+    node_values[node_id(state)] = best_score
+    return best_score, best_path
+
+
+def max_value(state, alpha, beta):
+    nid = node_id(state)
+    if is_leaf(state):
+        val = utility(state)
+        node_values[nid] = val
+        return val, [nid]
+
+    v = -math.inf
+    best_path = []
+    children = actions(state)
+
+    for i, a in enumerate(children):
+        child_val, child_path = min_value(a, alpha, beta)
+        if child_val > v:
+            v = child_val
+            best_path = [nid] + child_path
+        if v >= beta:
+            for rem in children[i + 1 :]:
+                pruned_edges.add((nid, node_id(rem)))
+                mark_pruned(rem)
+            node_values[nid] = v
+            return v, best_path
+        alpha = max(alpha, v)
+
+    node_values[nid] = v
+    return v, best_path
+
+
+def min_value(state, alpha, beta):
+    nid = node_id(state)
+    if is_leaf(state):
+        val = utility(state)
+        node_values[nid] = val
+        return val, [nid]
+
+    v = math.inf
+    best_path = []
+    children = actions(state)
+
+    for i, a in enumerate(children):
+        child_val, child_path = max_value(a, alpha, beta)
+        if child_val < v:
+            v = child_val
+            best_path = [nid] + child_path
+        if v <= alpha:
+            for rem in children[i + 1 :]:
+                pruned_edges.add((nid, node_id(rem)))
+                mark_pruned(rem)
+            node_values[nid] = v
+            return v, best_path
+        beta = min(beta, v)
+
+    node_values[nid] = v
+    return v, best_path
+
+
+def get_positions(state, depth=0, counter=[0], pos={}):
+    nid = node_id(state)
+    if is_leaf(state):
+        pos[nid] = (counter[0], -depth)
+        counter[0] += 1
+    else:
+        children = actions(state)
+        for child in children:
+            get_positions(child, depth + 1, counter, pos)
+        xs = [pos[node_id(c)][0] for c in children]
+        pos[nid] = (sum(xs) / len(xs), -depth)
+    return pos
+
+
+def draw_tree(root, optimal_path):
+    pos = get_positions(root)
+    optimal_edges = set(zip(optimal_path, optimal_path[1:]))
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    ax.axis("off")
+
+    def draw_edges(state):
+        if is_leaf(state):
+            return
+        u = node_id(state)
+        x1, y1 = pos[u]
+        for child in actions(state):
+            v = node_id(child)
+            x2, y2 = pos[v]
+            if (u, v) in pruned_edges:
+                ax.plot(
+                    [x1, x2],
+                    [y1, y2],
+                    color="red",
+                    linestyle="--",
+                    linewidth=1.5,
+                    zorder=1,
+                )
+                ax.text(
+                    (x1 + x2) / 2,
+                    (y1 + y2) / 2,
+                    "X",
+                    color="red",
+                    fontsize=12,
+                    fontweight="bold",
+                    ha="center",
+                    va="center",
+                )
+            elif (u, v) in optimal_edges:
+                ax.plot(
+                    [x1, x2], [y1, y2], color="green", linewidth=3.0, zorder=2
+                )
+            else:
+                ax.plot(
+                    [x1, x2], [y1, y2], color="black", linewidth=1.5, zorder=1
+                )
+            draw_edges(child)
+
+    def draw_nodes(state, depth=0):
+        nid = node_id(state)
+        x, y = pos[nid]
+        is_pruned = nid in pruned_nodes
+        is_opt = nid in optimal_path
+
+        facecolor = (
+            "#ffcccc" if is_pruned else ("#ccffcc" if is_opt else "white")
+        )
+        edgecolor = "red" if is_pruned else ("green" if is_opt else "black")
+        label = (
+            str(utility(state))
+            if is_leaf(state)
+            else ("X" if is_pruned else str(node_values.get(nid, "")))
+        )
+
+        if is_leaf(state):
+            rect = patches.Rectangle(
+                (x - 0.25, y - 0.18),
+                0.5,
+                0.36,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                linewidth=2,
+                zorder=3,
+            )
+            ax.add_patch(rect)
+        elif depth % 2 == 0:
+            rect = patches.Rectangle(
+                (x - 0.28, y - 0.2),
+                0.56,
+                0.4,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                linewidth=2,
+                zorder=3,
+            )
+            ax.add_patch(rect)
+        else:
+            circ = patches.Circle(
+                (x, y),
+                0.24,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                linewidth=2,
+                zorder=3,
+            )
+            ax.add_patch(circ)
+
+        ax.text(
+            x,
+            y,
+            label,
+            ha="center",
+            va="center",
+            fontsize=10,
+            fontweight="bold",
+            zorder=4,
+        )
+
+        if not is_leaf(state):
+            for child in actions(state):
+                draw_nodes(child, depth + 1)
+
+    draw_edges(root)
+    draw_nodes(root)
+
+    ax.set_xlim(-0.8, 13.8)
+    ax.set_ylim(-4.6, 0.6)
+    plt.title(
+        f"Alpha-Beta Search Tree | Root Value = {node_values['Root']} | Optimal Path: {' -> '.join(optimal_path)}",
+        fontsize=12,
+        fontweight="bold",
+    )
+    plt.tight_layout()
+    plt.show()
+
+
+root_val, optimal_path = alpha_beta_search("Root")
+draw_tree("Root", optimal_path)
+
+
